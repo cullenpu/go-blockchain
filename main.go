@@ -6,15 +6,17 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/gin-gonic/gin"
 )
 
 type Block struct {
-	index     int
-	timestamp time.Time
-	hash      string
-	prevHash  string
-	data      string
-	pow       int
+	Index     int
+	Timestamp time.Time
+	Hash      string
+	PrevHash  string
+	Data      string
+	Pow       int
 }
 
 type Blockchain struct {
@@ -23,51 +25,54 @@ type Blockchain struct {
 	difficulty   int
 }
 
+var BC Blockchain // In-memory blockchain
+
 func calculateHash(block Block) string {
-	blockData := strconv.Itoa(block.index) + block.timestamp.String() + block.data + block.prevHash + strconv.Itoa(block.pow)
+	blockData := strconv.Itoa(block.Index) + block.Timestamp.String() + block.Data + block.PrevHash + strconv.Itoa(block.Pow)
 	blockHash := sha256.Sum256([]byte(blockData))
 	return fmt.Sprintf("%x", blockHash)
 }
 
-func isBlockValid(newBlock, oldBlock Block) bool {
-	if oldBlock.index+1 != newBlock.index {
+func (b *Block) mine(difficulty int) {
+	for !strings.HasPrefix(b.Hash, strings.Repeat("0", difficulty)) {
+		b.Pow++
+		b.Hash = calculateHash(*b)
+	}
+}
+
+// Mine a new block and add it to the chain
+func (bc *Blockchain) addBlock(Data string) Block {
+	lastBlock := bc.chain[len(bc.chain)-1]
+	newBlock := Block{
+		Index:     lastBlock.Index + 1,
+		Timestamp: time.Now(),
+		Data:      Data,
+		PrevHash:  lastBlock.Hash,
+		Pow:       0,
+	}
+	newBlock.mine(bc.difficulty)
+	bc.chain = append(bc.chain, newBlock)
+	return newBlock
+}
+
+// Check validity of a block and its previous block
+func isBlockValid(currBlock, prevBlock Block) bool {
+	if prevBlock.Index+1 != currBlock.Index {
 		return false
 	}
-	if newBlock.hash != calculateHash(newBlock) {
+	if currBlock.Hash != calculateHash(currBlock) {
 		return false
 	}
-	if oldBlock.hash != newBlock.prevHash {
+	if prevBlock.Hash != currBlock.PrevHash {
 		return false
 	}
 
 	return true
 }
 
-func (b *Block) mine(difficulty int) {
-	for !strings.HasPrefix(b.hash, strings.Repeat("0", difficulty)) {
-		b.pow++
-		b.hash = calculateHash(*b)
-	}
-}
-
-func (bc *Blockchain) getLastBlock() Block {
-	return bc.chain[len(bc.chain)-1]
-}
-
-func (bc *Blockchain) addBlock(data string) {
-	lastBlock := bc.getLastBlock()
-	newBlock := Block{
-		index:     lastBlock.index + 1,
-		timestamp: time.Now(),
-		data:      data,
-		prevHash:  lastBlock.hash,
-	}
-	newBlock.mine(bc.difficulty)
-	bc.chain = append(bc.chain, newBlock)
-}
-
+// Check validity of entire chain
 func (bc *Blockchain) isValid() bool {
-	for i := range bc.chain[1:] {
+	for i := 1; i < len(bc.chain); i++ {
 		currBlock, prevBlock := bc.chain[i], bc.chain[i-1]
 		if !isBlockValid(currBlock, prevBlock) {
 			return false
@@ -76,14 +81,28 @@ func (bc *Blockchain) isValid() bool {
 	return true
 }
 
+// Initialize a new blockchain
 func createBlockchain(difficulty int) Blockchain {
 	genesisBlock := Block{
-		hash:      "0",
-		timestamp: time.Now(),
+		Hash:      "0",
+		Timestamp: time.Now(),
 	}
 	return Blockchain{
 		genesisBlock,
 		[]Block{genesisBlock},
 		difficulty,
 	}
+}
+
+func main() {
+	BC = createBlockchain(2)
+
+	router := gin.Default()
+
+	router.GET("/", getBlockchainHandler)
+	router.GET("/:index", getBlockHandler)
+	router.POST("/mine", mineBlockHahdler)
+
+	port := ":8080"
+	router.Run(port)
 }
